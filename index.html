@@ -67,7 +67,7 @@ tr:hover{background:#e8f5e9}
 .calc-control-group{display:flex;flex-direction:column;gap:5px}
 .calc-control-group label{font-size:.8rem;font-weight:600;color:#00a758;text-transform:uppercase;letter-spacing:.5px}
 .calc-control-group select,.calc-control-group input{padding:10px 35px 10px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:.95rem;font-family:inherit;background:#fff;cursor:pointer;transition:all .3s;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2300a758' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
-.calc-control-group input{appearance:auto;-webkit-appearance:auto;background-image:none;padding:10px 12px}
+.calc-control-group input{appearance:auto;-webkit-appearance:auto;background-image:none;padding:10px 12px;cursor:text}
 .calc-control-group select:focus,.calc-control-group input:focus{outline:none;border-color:#00a758;box-shadow:0 0 0 3px rgba(0,167,88,0.15)}
 
 /* Plan Cards */
@@ -291,7 +291,16 @@ body{padding-top:0}
 </select>
 </div>
 <div class="calc-control-group">
-<label>Kontribusi Bulanan</label>
+<label>Mode Pembayaran</label>
+<select id="modePembayaran" onchange="handleModeChange()">
+<option value="bulanan" selected>Bulanan</option>
+<option value="kuartalan">Kuartalan</option>
+<option value="semesteran">Semesteran</option>
+<option value="tahunan">Tahunan</option>
+</select>
+</div>
+<div class="calc-control-group">
+<label id="kontribusiLabel">Kontribusi Bulanan</label>
 <select id="kontribusi" onchange="handleKontribusiChange()">
 <option value="250000">Rp 250.000</option>
 <option value="300000">Rp 300.000</option>
@@ -307,8 +316,8 @@ body{padding-top:0}
 </select>
 </div>
 <div class="calc-control-group" id="customGroup" style="display:none">
-<label>Jumlah (min Rp 250.000)</label>
-<input type="number" id="customKontribusi" min="250000" max="10000000" step="50000" value="250000" onchange="calculate()" oninput="calculate()">
+<label id="customLabel">Jumlah (min Rp 250.000)</label>
+<input type="text" id="customKontribusi" inputmode="numeric" value="250.000">
 </div>
 <div class="calc-control-group">
 <label>Usia Masuk Peserta</label>
@@ -590,8 +599,61 @@ questions.forEach(function(q){
 })();
 
 // ============ KALKULATOR MPDS ============
+var modePresets = {
+    bulanan: [250000, 300000, 500000, 750000, 1000000, 1500000, 2000000, 2500000, 3000000, 5000000],
+    kuartalan: [750000, 900000, 1500000, 2250000, 3000000, 4500000, 6000000, 7500000, 9000000, 15000000],
+    semesteran: [1500000, 1800000, 3000000, 4500000, 6000000, 9000000, 12000000, 15000000, 18000000, 30000000],
+    tahunan: [3000000, 3600000, 6000000, 9000000, 12000000, 18000000, 24000000, 30000000, 36000000, 60000000]
+};
+var modeMinimum = { bulanan: 250000, kuartalan: 750000, semesteran: 1500000, tahunan: 3000000 };
+var modeDivisor = { bulanan: 1, kuartalan: 3, semesteran: 6, tahunan: 12 };
+var modeLabels = { bulanan: 'Bulanan', kuartalan: 'Kuartalan', semesteran: 'Semesteran', tahunan: 'Tahunan' };
+var modeSuffix = { bulanan: '/bulan', kuartalan: '/kuartal', semesteran: '/semester', tahunan: '/tahun' };
+var modePeriod = { bulanan: 'bulan', kuartalan: 'kuartal', semesteran: 'semester', tahunan: 'tahun' };
+var modePaymentsPerYear = { bulanan: 12, kuartalan: 4, semesteran: 2, tahunan: 1 };
+
 function formatRupiah(num) {
     return 'Rp ' + num.toLocaleString('id-ID');
+}
+
+function formatThousands(num) {
+    if (isNaN(num) || num === 0) return '';
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function parseThousands(str) {
+    return parseInt(str.replace(/\./g, ''), 10) || 0;
+}
+
+function getMode() {
+    return document.getElementById('modePembayaran').value;
+}
+
+function handleModeChange() {
+    var mode = getMode();
+    var sel = document.getElementById('kontribusi');
+    var presets = modePresets[mode];
+    var min = modeMinimum[mode];
+
+    // Update label
+    document.getElementById('kontribusiLabel').textContent = 'Kontribusi ' + modeLabels[mode];
+
+    // Rebuild options
+    var html = '';
+    for (var i = 0; i < presets.length; i++) {
+        var selected = (i === 2) ? ' selected' : '';
+        html += '<option value="' + presets[i] + '"' + selected + '>' + formatRupiah(presets[i]) + '</option>';
+    }
+    html += '<option value="custom">Lainnya (Input Manual)</option>';
+    sel.innerHTML = html;
+
+    // Update custom input
+    var customInput = document.getElementById('customKontribusi');
+    customInput.value = formatThousands(min);
+    document.getElementById('customLabel').textContent = 'Jumlah (min ' + formatRupiah(min) + ')';
+    document.getElementById('customGroup').style.display = 'none';
+
+    calculate();
 }
 
 function handleKontribusiChange() {
@@ -605,14 +667,16 @@ function handleKontribusiChange() {
     calculate();
 }
 
-function getKontribusiBulanan() {
+function getKontribusiInput() {
+    var mode = getMode();
+    var min = modeMinimum[mode];
     var sel = document.getElementById('kontribusi');
     if (sel.value === 'custom') {
         var input = document.getElementById('customKontribusi');
-        var val = parseInt(input.value) || 250000;
-        if (val < 250000) {
-            val = 250000;
-            input.value = 250000;
+        var val = parseThousands(input.value);
+        if (val < min) {
+            val = min;
+            input.value = formatThousands(min);
         }
         return val;
     }
@@ -621,8 +685,12 @@ function getKontribusiBulanan() {
 
 function calculate() {
     var mpk = parseInt(document.getElementById('mpk').value);
-    var kontribusiBulanan = getKontribusiBulanan();
+    var mode = getMode();
+    var kontribusiInput = getKontribusiInput();
     var usia = parseInt(document.getElementById('usia').value);
+
+    // Convert to monthly equivalent for santunan calculation
+    var kontribusiBulanan = kontribusiInput / modeDivisor[mode];
 
     // Calculate benefits
     var multiplier = (mpk === 5) ? 250 : 450;
@@ -632,10 +700,11 @@ function calculate() {
     var pengembalianPct = (usia <= 40) ? 1.0 : 0.7;
     var pengembalian = totalKontribusi * pengembalianPct;
 
-    // Payment frequency
+    // Payment frequency values (derived from monthly)
     var kontribusiTahunan = kontribusiBulanan * 12;
     var kontribusiSemesteran = kontribusiTahunan * 0.5;
     var kontribusiKuartalan = kontribusiTahunan * 0.25;
+    var kontribusiBulananDisplay = kontribusiBulanan;
 
     var html = '';
 
@@ -650,7 +719,7 @@ function calculate() {
     html += '<div class="card-header">Santunan Meninggal Dunia</div>';
     html += '<div class="card-body">';
     html += '<div class="premi-row"><span class="premi-label">Santunan Asuransi</span><span class="premi-value">' + formatRupiah(santunan) + '</span></div>';
-    html += '<div class="premi-row"><span class="premi-label">Formula</span><span class="premi-value" style="font-size:.8rem;color:#555">' + multiplier + ' x ' + formatRupiah(kontribusiBulanan) + '</span></div>';
+    html += '<div class="premi-row"><span class="premi-label">Formula</span><span class="premi-value" style="font-size:.8rem;color:#555">' + multiplier + ' x ' + formatRupiah(kontribusiBulanan) + ' (bulanan)</span></div>';
     html += '<div class="premi-row"><span class="premi-label">MPK</span><span class="premi-value" style="font-size:.85rem;color:#006838">' + mpk + ' tahun</span></div>';
     html += '</div></div>';
 
@@ -672,14 +741,23 @@ function calculate() {
     html += '<div class="premi-row"><span class="premi-label">Pengembalian</span><span class="premi-value">' + formatRupiah(pengembalian) + '</span></div>';
     html += '</div></div>';
 
-    // Card 4: Kontribusi per Frekuensi
+    // Card 4: Kontribusi per Frekuensi (highlight selected mode)
     html += '<div class="plan-card animate">';
     html += '<div class="card-header">Kontribusi per Frekuensi Pembayaran</div>';
     html += '<div class="card-body">';
-    html += '<div class="premi-row"><span class="premi-label">Bulanan</span><span class="premi-value">' + formatRupiah(kontribusiBulanan) + '</span></div>';
-    html += '<div class="premi-row"><span class="premi-label">Kuartalan (3 bulan)</span><span class="premi-value">' + formatRupiah(kontribusiKuartalan) + '</span></div>';
-    html += '<div class="premi-row"><span class="premi-label">Semesteran (6 bulan)</span><span class="premi-value">' + formatRupiah(kontribusiSemesteran) + '</span></div>';
-    html += '<div class="premi-row"><span class="premi-label">Tahunan</span><span class="premi-value">' + formatRupiah(kontribusiTahunan) + '</span></div>';
+    var freqs = [
+        { key: 'bulanan', label: 'Bulanan', value: kontribusiBulananDisplay },
+        { key: 'kuartalan', label: 'Kuartalan (3 bulan)', value: kontribusiKuartalan },
+        { key: 'semesteran', label: 'Semesteran (6 bulan)', value: kontribusiSemesteran },
+        { key: 'tahunan', label: 'Tahunan', value: kontribusiTahunan }
+    ];
+    for (var i = 0; i < freqs.length; i++) {
+        var isActive = (freqs[i].key === mode);
+        var rowStyle = isActive ? ' style="background:#e8f5e9;border-radius:6px;padding:10px 8px"' : '';
+        var labelExtra = isActive ? ' <span style="font-size:.7rem;background:#00a758;color:#fff;padding:2px 6px;border-radius:10px;margin-left:4px">dipilih</span>' : '';
+        var valueStyle = isActive ? ' style="font-weight:800;color:#006838"' : '';
+        html += '<div class="premi-row"' + rowStyle + '><span class="premi-label">' + freqs[i].label + labelExtra + '</span><span class="premi-value"' + valueStyle + '>' + formatRupiah(freqs[i].value) + '</span></div>';
+    }
     html += '</div></div>';
 
     html += '</div>'; // end cards-grid
@@ -688,9 +766,10 @@ function calculate() {
     html += '<p style="font-size:.78rem;color:#666;margin-top:8px;margin-bottom:18px;font-style:italic">*Berdasarkan faktor modal resmi MPDS</p>';
 
     // Summary box
+    var summaryKontribusi = formatRupiah(kontribusiInput) + modeSuffix[mode] + ' selama ' + mpk + ' tahun';
     html += '<div class="calc-info-box">';
     html += '<h4>Ringkasan Manfaat Anda</h4>';
-    html += '<p><strong>Kontribusi:</strong> ' + formatRupiah(kontribusiBulanan) + '/bulan selama ' + mpk + ' tahun</p>';
+    html += '<p><strong>Kontribusi:</strong> ' + summaryKontribusi + '</p>';
     html += '<p><strong>Masa Perlindungan:</strong> 12 tahun</p>';
     html += '<p><strong>Santunan Meninggal Dunia:</strong> ' + formatRupiah(santunan) + '</p>';
     html += '<p><strong>Tambahan jika Kecelakaan:</strong> +' + formatRupiah(kecelakaan) + '</p>';
@@ -699,6 +778,58 @@ function calculate() {
 
     document.getElementById('calcResults').innerHTML = html;
 }
+
+// Custom input event listeners
+(function() {
+    var customInput = document.getElementById('customKontribusi');
+
+    // On input: allow only digits, auto-format with thousand separators
+    customInput.addEventListener('input', function() {
+        var cursorPos = this.selectionStart;
+        var oldVal = this.value;
+        // Strip non-digit characters
+        var digits = this.value.replace(/[^\d]/g, '');
+        // Remove leading zeros
+        digits = digits.replace(/^0+/, '');
+        // Format with dots
+        var formatted = digits ? formatThousands(parseInt(digits, 10)) : '';
+        this.value = formatted;
+        // Adjust cursor position based on dots added/removed
+        var dotsBeforeCursor = (oldVal.substring(0, cursorPos).match(/\./g) || []).length;
+        var newDotsBeforeCursor = (formatted.substring(0, cursorPos).match(/\./g) || []).length;
+        var newCursor = cursorPos + (newDotsBeforeCursor - dotsBeforeCursor);
+        if (newCursor < 0) newCursor = 0;
+        if (newCursor > formatted.length) newCursor = formatted.length;
+        this.setSelectionRange(newCursor, newCursor);
+    });
+
+    // On blur: validate minimum and trigger calculate
+    customInput.addEventListener('blur', function() {
+        var mode = getMode();
+        var min = modeMinimum[mode];
+        var val = parseThousands(this.value);
+        if (!val || val < min) {
+            val = min;
+            this.value = formatThousands(min);
+        }
+        calculate();
+    });
+
+    // On keydown Enter: trigger calculate
+    customInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            var mode = getMode();
+            var min = modeMinimum[mode];
+            var val = parseThousands(this.value);
+            if (!val || val < min) {
+                val = min;
+                this.value = formatThousands(min);
+            }
+            calculate();
+        }
+    });
+})();
 
 // Initial calculation
 calculate();
